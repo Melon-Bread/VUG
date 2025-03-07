@@ -2,7 +2,7 @@ VUG - Video Upscaling GUI
 =========================
 
 .. image:: https://img.shields.io/badge/License-GPLv3+-blue.svg
-    :target: LICENSE
+    :target: https://www.gnu.org/licenses/gpl-3.0
 .. image:: https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white
     :target: https://python.org
 .. image:: https://img.shields.io/badge/Packaging-Briefcase-ff69b4
