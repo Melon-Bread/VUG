@@ -34,9 +34,11 @@ Installation
 **From Source:**
 .. code-block:: bash
 
-    git clone https://github.com/yourusername/vug.git
-    cd vug
-    pip install -r requirements.txt
+    git clone https://github.com/yourusername/vug.git  
+
+    cd vug  
+    
+    pip install -r requirements.txt  
 
 Usage
 -----
