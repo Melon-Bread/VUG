@@ -3,7 +3,7 @@
 project_name = "VUG"
 bundle = "dev.melonbread.vug"
 version = "0.0.1"
-url = "https://vug.melonbread.dev/vug"
+url = "https://codeberg.org/Melon-Bread/VUG"
 license.file = "LICENSE"
 author = "Melon Bread"
 author_email = "rain@melonbread.dev"
@@ -11,7 +11,7 @@ author_email = "rain@melonbread.dev"
 [tool.briefcase.app.vug]
 formal_name = "VUG"
 description = "Video Upscaler GUI"
-long_description = """More details about the app should go here.
+long_description = """VUG is a cross-platform GUI application for video upscaling using Real-ESRGAN neural networks.
 """
 sources = [
     "src/vug",
