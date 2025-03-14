@@ -13,6 +13,7 @@ formal_name = "VUG"
 description = "Video Upscaler GUI"
 long_description = """VUG is a cross-platform GUI application for video upscaling using Real-ESRGAN neural networks.
 """
+icon = "icons/VUG"
 sources = [
     "src/vug",
 ]

@@ -1,5 +1,7 @@
 # VUG - Video Upscaling GUI
 
+![icon](icons/VUG.png)
+
 [![License: GPLv3+](https://img.shields.io/badge/License-GPLv3+-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![Packaging: Briefcase](https://img.shields.io/badge/Packaging-Briefcase-ff69b4)](https://briefcase.readthedocs.io)
