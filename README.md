@@ -1,10 +1,11 @@
 # VUG - Video Upscaling GUI
 
-![screenshot](screenshots/20250314-193112.png)
-
-[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-green.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![Packaging: Briefcase](https://img.shields.io/badge/Packaging-Briefcase-ff69b4)](https://briefcase.readthedocs.io)
+![Platform](https://img.shields.io/badge/platform-Linux%2FmacOS%2FWindows-lightgrey)
+
+![screenshot](screenshots/20250314-193112.png)
 
 VUG is a cross-platform GUI application for video upscaling using Real-ESRGAN neural networks. Built with Python and PySide6, managed with BeeWare's Briefcase.
 
@@ -45,10 +46,9 @@ pip install briefcase # Can also use pipx
 
 2. Launch VUG:
 
-```bash
-
-briefcase run
-```
+   ```bash
+   briefcase run
+   ```
 
 3. GUI Interface:
    - Select input video/directory
@@ -67,7 +67,7 @@ briefcase run
 
 1. Fork the repository  
 2. Create feature branch  
-3. Submit pull request  
+3. Submit merge request  
 4. Ensure code complies with GPLv3 license  
 
 ## Third-Party Tools
