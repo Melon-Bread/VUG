@@ -2,7 +2,7 @@
 
 ![screenshot](screenshots/20250314-193112.png)
 
-[![License: GPLv3+](https://img.shields.io/badge/License-GPLv3+-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![Packaging: Briefcase](https://img.shields.io/badge/Packaging-Briefcase-ff69b4)](https://briefcase.readthedocs.io)
 
@@ -68,7 +68,7 @@ briefcase run
 1. Fork the repository  
 2. Create feature branch  
 3. Submit pull request  
-4. Ensure code complies with GPLv3+ license  
+4. Ensure code complies with GPLv3 license  
 
 ## Third-Party Tools
 
