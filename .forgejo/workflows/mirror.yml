@@ -1,0 +1,32 @@
+name: Mirror to GitHub
+on:
+  schedule:
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+
+jobs:
+  mirror:
+    runs-on: docker
+    steps:
+      - name: Checkout Codeberg repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "Melon Bread"
+          git config user.email "rain@melonbread.dev"
+
+      - name: Add GitHub remote
+        run: |
+          git remote add github https://${{ secrets.GH_TOKEN }}@github.com/Melon-Bread/VUG.git
+
+      - name: Fetch all branches and tags
+        run: |
+          git fetch origin
+
+      - name: Push to GitHub
+        run: |
+          git push --all --force github
+          git push --tags --force github
