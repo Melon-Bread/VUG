@@ -33,8 +33,8 @@ VUG is a cross-platform GUI application for video upscaling using Real-ESRGAN ne
 
 ```bash
 git clone https://codeberg.org/Melon-Bread/VUG
-cd vug
-pip install -r requirements.txt
+cd VUG
+pip install briefcase # Can also use pipx
 ```
 
 ## Usage
