@@ -6,7 +6,7 @@ on:
 
 jobs:
   mirror:
-    runs-on: docker
+    runs-on: codeberg-tiny
     steps:
       - name: Checkout Codeberg repository
         uses: actions/checkout@v3
