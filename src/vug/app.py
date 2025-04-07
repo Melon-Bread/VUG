@@ -37,31 +37,37 @@ class UpscaleWorker(QObject):
     finished_signal = Signal()  # Signal to indicate process completion
     progress_signal = Signal(int, int)  # Signal for frame progress (current, total)
 
-    def __init__(self, input_path, output_dir, scale, model, batch_size):
+    def __init__(self, input_path, output_path, scale, model, batch_size, bulk_mode=False):
         super().__init__()
         self.input_path = input_path
-        self.output_dir = output_dir
+        self.output_path = output_path
         self.scale = scale
         self.model = model
         self.batch_size = batch_size
+        self.bulk_mode = bulk_mode
 
     def run(self):
         """Run the upscaling process in a separate thread"""
         try:
-            if os.path.isfile(self.input_path):
-                # Single file mode
-                self.upscale_single_video(self.input_path, self.output_dir)
-            elif os.path.isdir(self.input_path):
-                # Directory mode
-                self.upscale_directory(self.input_path, self.output_dir)
+            if self.bulk_mode:
+                if not os.path.isdir(self.input_path):
+                    raise ValueError("Bulk mode requires input to be a directory")
+                # Create output directory if it doesn't exist
+                Path(self.output_path).mkdir(parents=True, exist_ok=True)
+                self.upscale_directory(self.input_path, self.output_path)
             else:
-                raise ValueError("Input path is neither a file nor a directory")
+                if not os.path.isfile(self.input_path):
+                    raise ValueError("Single mode requires input to be a file")
+                output_file_path = self.output_path
+                output_dir = os.path.dirname(output_file_path)
+                Path(output_dir).mkdir(parents=True, exist_ok=True)
+                self.upscale_single_video(self.input_path, output_file_path)
         except Exception as e:
             self.log_signal.emit(f"Error: {str(e)}")
         finally:
             self.finished_signal.emit()
 
-    def upscale_single_video(self, input_video, output_dir):
+    def upscale_single_video(self, input_video, output_file):
         """Upscale a single video file"""
         # Create temp directories
         temp_dir = tempfile.mkdtemp()
@@ -74,13 +80,6 @@ class UpscaleWorker(QObject):
         fps = self.get_video_fps(input_video)
         if not fps:
             raise ValueError("Could not detect FPS")
-
-        # Create output directory if it doesn't exist
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        output_file = os.path.join(
-            output_dir,
-            f"upscaled_{Path(input_video).stem}.mp4"
-        )
 
         # Extract frames
         self.log_signal.emit(f"Extracting frames from {input_video}...")
@@ -108,7 +107,10 @@ class UpscaleWorker(QObject):
         for video_file in video_files:
             relative_path = os.path.relpath(video_file, input_dir)
             output_subdir = os.path.join(output_dir, os.path.dirname(relative_path))
-            self.upscale_single_video(video_file, output_subdir)
+            self.upscale_single_video(video_file, os.path.join(
+                output_subdir,
+                f"upscaled_{Path(video_file).stem}.mp4"
+            ))
 
     def find_video_files(self, directory):
         """Recursively find all supported video files in a directory"""
@@ -137,17 +139,23 @@ class UpscaleWorker(QObject):
             text=True,
         )
         
-        # Set initial progress to 20% when extraction starts
-        self.progress_signal.emit(20, 100)
-        
         for line in process.stderr:
             self.log_signal.emit(line.strip())
+        
+        # After extraction completes, update progress to 20%
+        self.progress_signal.emit(20, 100)
 
     def upscale_frames(self, input_dir, output_dir, scale, model, batch_size):
-        """Upscale frames and log output"""
-        # Count input frames for progress calculation
+        """Upscale frames with polling-based progress update"""
+        # Count input frames before starting
         input_frames = len([f for f in os.listdir(input_dir) if f.endswith('.png')])
-        
+        if input_frames == 0:
+            input_frames = 1  # avoid division by zero
+
+        self.current_progress = 20
+        self.target_progress = 20
+
+        # Start realesrgan subprocess
         process = subprocess.Popen(
             [
                 "realesrgan-ncnn-vulkan",
@@ -161,20 +169,43 @@ class UpscaleWorker(QObject):
             stderr=subprocess.PIPE,
             text=True,
         )
-        
-        # Monitor output directory for progress
-        while process.poll() is None:
-            time.sleep(0.5)
-            try:
-                output_frames = len([f for f in os.listdir(output_dir) if f.endswith('.png')])
-                progress = 20 + (output_frames / input_frames) * 70  # 20-90% range
-                self.progress_signal.emit(int(progress), 100)
-            except:
-                pass
-            
-            # Still process log output
-            for line in process.stderr:
-                self.log_signal.emit(line.strip())
+
+        try:
+            while process.poll() is None:
+                time.sleep(0.2)
+                try:
+                    output_frames = len([f for f in os.listdir(output_dir) if f.endswith('.png')])
+                    ratio = output_frames / input_frames
+                    if ratio > 1:
+                        ratio = 1
+                    self.target_progress = 20 + ratio * 70
+                    if self.target_progress > 90:
+                        self.target_progress = 90
+                except:
+                    pass
+
+                # Smooth interpolation
+                self.current_progress += (self.target_progress - self.current_progress) * 0.2
+                self.progress_signal.emit(int(self.current_progress), 100)
+
+                # Process log output without blocking
+                if process.stderr:
+                    try:
+                        line = process.stderr.readline()
+                        if line:
+                            self.log_signal.emit(line.strip())
+                    except:
+                        pass
+        finally:
+            pass
+
+        # Final update to 90% after process ends
+        self.current_progress = max(self.current_progress, 90)
+        self.progress_signal.emit(int(self.current_progress), 100)
+
+        # Drain any remaining stderr
+        for line in process.stderr:
+            self.log_signal.emit(line.strip())
 
     def combine_frames(self, frames_dir, output_file, fps, input_video):
         """Combine frames into video and log output"""
@@ -229,7 +260,7 @@ class VUG(QMainWindow):
         self.main_widget.setLayout(self.layout)
 
         # Input Video/Directory
-        self.input_label = QLabel("Input Video/Directory:")
+        self.input_label = QLabel("Input Video File:")
         self.input_input = QLineEdit()
         self.input_input.setReadOnly(False)
         self.input_button = QPushButton("Browse...")
@@ -241,7 +272,7 @@ class VUG(QMainWindow):
         self.layout.addLayout(input_box)
 
         # Output Directory
-        self.output_dir_label = QLabel("Output Directory:")
+        self.output_dir_label = QLabel("Output Video File::")
         self.output_dir_input = QLineEdit()
         self.output_dir_input.setReadOnly(True)
         self.output_dir_button = QPushButton("Browse...")
@@ -251,7 +282,14 @@ class VUG(QMainWindow):
         output_dir_box.addWidget(self.output_dir_input)
         output_dir_box.addWidget(self.output_dir_button)
         self.layout.addLayout(output_dir_box)
-
+        
+        # Bulk Mode Checkbox
+        from PySide6.QtWidgets import QCheckBox
+        self.bulk_checkbox = QCheckBox("Bulk Mode")
+        self.bulk_checkbox.setChecked(False)
+        self.bulk_checkbox.stateChanged.connect(self.toggle_bulk_mode)
+        self.layout.addWidget(self.bulk_checkbox)
+        
         # Scale Factor
         self.scale_factor_label = QLabel("Scale Factor:")
         self.scale_factor_input = QComboBox()
@@ -320,46 +358,95 @@ class VUG(QMainWindow):
 
     def select_input(self):
         """Open file/directory dialog to select input"""
-        dialog = QFileDialog()
-        dialog.setFileMode(QFileDialog.ExistingFiles)  # Allow selecting multiple files or directories
-        dialog.setNameFilter(
-            "Videos (*.mp4 *.mov *.avi *.mkv *.flv *.wmv *.webm *.mpeg *.mpg);;"
-            "All Files (*)"
-        )
-        if dialog.exec():
-            selected_paths = dialog.selectedFiles()
-            if selected_paths:
-                self.input_input.setText(selected_paths[0])  # Display the first selected path
-                # Set default output directory to input's parent
-                input_path = Path(selected_paths[0])
-                self.output_dir_input.setText(str(input_path.parent))
+        if self.bulk_checkbox.isChecked():
+            # Bulk mode: select directory
+            dir_dialog = QFileDialog()
+            dir_dialog.setFileMode(QFileDialog.Directory)
+            if dir_dialog.exec():
+                selected_dirs = dir_dialog.selectedFiles()
+                if selected_dirs:
+                    self.input_input.setText(selected_dirs[0])
+                    # Set default output dir to input dir
+                    self.output_dir_input.setText(selected_dirs[0])
+        else:
+            # Single mode: select file
+            file_dialog = QFileDialog()
+            file_dialog.setFileMode(QFileDialog.ExistingFile)
+            file_dialog.setNameFilter(
+                "Videos (*.mp4 *.mov *.avi *.mkv *.flv *.wmv *.webm *.mpeg *.mpg);;"
+                "All Files (*)"
+            )
+            if file_dialog.exec():
+                selected_files = file_dialog.selectedFiles()
+                if selected_files:
+                    self.input_input.setText(selected_files[0])
+                    # Set default output file path next to input, enforce .mp4 extension
+                    input_path = Path(selected_files[0])
+                    default_out = input_path.parent / f"upscaled_{input_path.stem}.mp4"
+                    self.output_dir_input.setText(str(default_out))
 
     def select_output_dir(self):
-        """Open directory dialog to select output location"""
-        dir_dialog = QFileDialog()
-        dir_dialog.setFileMode(QFileDialog.Directory)
-        if dir_dialog.exec():
-            selected_dirs = dir_dialog.selectedFiles()
-            if selected_dirs:
-                self.output_dir_input.setText(selected_dirs[0])
+        """Open dialog to select output location"""
+        if self.bulk_checkbox.isChecked():
+            # Bulk mode: select directory
+            dir_dialog = QFileDialog()
+            dir_dialog.setFileMode(QFileDialog.Directory)
+            if dir_dialog.exec():
+                selected_dirs = dir_dialog.selectedFiles()
+                if selected_dirs:
+                    self.output_dir_input.setText(selected_dirs[0])
+        else:
+            # Single mode: select output file
+            file_dialog = QFileDialog()
+            file_dialog.setAcceptMode(QFileDialog.AcceptSave)
+            file_dialog.setNameFilter(
+                "Videos (*.mp4 *.mov *.avi *.mkv *.flv *.wmv *.webm *.mpeg *.mpg);;"
+                "All Files (*)"
+            )
+            if file_dialog.exec():
+                selected_files = file_dialog.selectedFiles()
+                if selected_files:
+                    self.output_dir_input.setText(selected_files[0])
 
     def log_message(self, message):
         """Append a message to the log box"""
         self.log_box.append(message)
         self.log_box.verticalScrollBar().setValue(self.log_box.verticalScrollBar().maximum())
 
+    def toggle_bulk_mode(self):
+        """Toggle between single and bulk mode"""
+        if self.bulk_checkbox.isChecked():
+            self.input_label.setText("Input Directory:")
+            self.output_dir_label.setText("Output Directory:")
+            # Clear previous paths
+            self.input_input.clear()
+            self.output_dir_input.clear()
+        else:
+            self.input_label.setText("Input Video File:")
+            self.output_dir_label.setText("Output Video File:")
+            # Clear previous paths
+            self.input_input.clear()
+            self.output_dir_input.clear()
+
     def upscale_video(self):
         """Start the upscaling process in a separate thread"""
         input_path = self.input_input.text()
-        output_dir = self.output_dir_input.text()
+        output_path = self.output_dir_input.text()
 
         if not input_path or not os.path.exists(input_path):
             self.log_message("Invalid input path!")
             return
 
-        if not output_dir:
-            self.log_message("Please select an output directory!")
+        if not output_path:
+            self.log_message("Please select an output location!")
             return
+
+        # Enforce .mp4 extension in single mode
+        if not self.bulk_checkbox.isChecked():
+            output_path_obj = Path(output_path)
+            if output_path_obj.suffix.lower() != ".mp4":
+                output_path = str(output_path_obj.with_suffix(".mp4"))
+                self.output_dir_input.setText(output_path)
 
         # Disable the upscale button during processing
         self.upscale_button.setEnabled(False)
@@ -372,10 +459,11 @@ class VUG(QMainWindow):
         # Create worker and thread
         self.worker = UpscaleWorker(
             input_path,
-            output_dir,
+            output_path,
             int(self.scale_factor_input.currentText()),
             self.model_input.currentText(),
-            self.batch_size_input.value(),  # Pass batch size to worker
+            self.batch_size_input.value(),
+            bulk_mode=self.bulk_checkbox.isChecked()
         )
         self.worker_thread = threading.Thread(target=self.worker.run)
 
@@ -407,6 +495,7 @@ class VUG(QMainWindow):
         self.upscale_button.setEnabled(True)
         self.progress_bar.setValue(100)
         self.update_task_duration()  # Final update
+        self.task_timer.stop()
 
 def main():
     """Run the GUI application."""
