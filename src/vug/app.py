@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QTextEdit,
     QSpinBox,
+    QProgressBar,
 )
 from PySide6.QtCore import QTimer, Qt, Signal, QObject
 
@@ -34,6 +35,7 @@ SUPPORTED_EXTENSIONS = (".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".webm",
 class UpscaleWorker(QObject):
     log_signal = Signal(str)  # Signal to send log messages
     finished_signal = Signal()  # Signal to indicate process completion
+    progress_signal = Signal(int, int)  # Signal for frame progress (current, total)
 
     def __init__(self, input_path, output_dir, scale, model, batch_size):
         super().__init__()
@@ -134,11 +136,18 @@ class UpscaleWorker(QObject):
             stderr=subprocess.PIPE,
             text=True,
         )
+        
+        # Set initial progress to 20% when extraction starts
+        self.progress_signal.emit(20, 100)
+        
         for line in process.stderr:
             self.log_signal.emit(line.strip())
 
     def upscale_frames(self, input_dir, output_dir, scale, model, batch_size):
         """Upscale frames and log output"""
+        # Count input frames for progress calculation
+        input_frames = len([f for f in os.listdir(input_dir) if f.endswith('.png')])
+        
         process = subprocess.Popen(
             [
                 "realesrgan-ncnn-vulkan",
@@ -146,17 +155,32 @@ class UpscaleWorker(QObject):
                 "-o", output_dir,
                 "-s", str(scale),
                 "-n", model,
-                "-j", f"{batch_size}:{batch_size}:{batch_size}",  # Use batch size for all stages
+                "-j", f"{batch_size}:{batch_size}:{batch_size}",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
-        for line in process.stderr:
-            self.log_signal.emit(line.strip())
+        
+        # Monitor output directory for progress
+        while process.poll() is None:
+            time.sleep(0.5)
+            try:
+                output_frames = len([f for f in os.listdir(output_dir) if f.endswith('.png')])
+                progress = 20 + (output_frames / input_frames) * 70  # 20-90% range
+                self.progress_signal.emit(int(progress), 100)
+            except:
+                pass
+            
+            # Still process log output
+            for line in process.stderr:
+                self.log_signal.emit(line.strip())
 
     def combine_frames(self, frames_dir, output_file, fps, input_video):
         """Combine frames into video and log output"""
+        # Set initial progress to 90%
+        self.progress_signal.emit(90, 100)
+        
         frame_pattern = os.path.join(frames_dir, "frame_%04d.png")
         process = subprocess.Popen(
             [
@@ -175,8 +199,23 @@ class UpscaleWorker(QObject):
             stderr=subprocess.PIPE,
             text=True,
         )
-        for line in process.stderr:
-            self.log_signal.emit(line.strip())
+        
+        # Monitor process completion for progress updates
+        while process.poll() is None:
+            time.sleep(0.5)
+            # Estimate progress based on output file growth
+            try:
+                if os.path.exists(output_file):
+                    size = os.path.getsize(output_file)
+                    # Simple heuristic - assume final size ~100MB
+                    progress = 90 + min(10, size / (100 * 1024 * 1024) * 10)
+                    self.progress_signal.emit(int(progress), 100)
+            except:
+                pass
+            
+            # Process log output
+            for line in process.stderr:
+                self.log_signal.emit(line.strip())
 
 
 class VUG(QMainWindow):
@@ -257,24 +296,23 @@ class VUG(QMainWindow):
         self.upscale_button.clicked.connect(self.upscale_video)
         self.layout.addWidget(self.upscale_button)
 
-        # Spinner and Task Duration
-        self.spinner_label = QLabel("")
-        self.spinner_label.setAlignment(Qt.AlignCenter)
+        # Progress widgets
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setFormat("%p%")  # Show percentage
+        
         self.task_duration_label = QLabel("Task Duration: 00:00:00")
         self.task_duration_label.setAlignment(Qt.AlignCenter)
-        spinner_duration_box = QHBoxLayout()
-        spinner_duration_box.addWidget(self.spinner_label)
-        spinner_duration_box.addWidget(self.task_duration_label)
-        self.layout.addLayout(spinner_duration_box)
+        
+        progress_box = QHBoxLayout()
+        progress_box.addWidget(self.progress_bar, stretch=2)
+        progress_box.addWidget(self.task_duration_label, stretch=1)
+        self.layout.addLayout(progress_box)
 
-        # Timer for spinner animation
-        self.spinner_timer = QTimer()
-        self.spinner_timer.timeout.connect(self.update_spinner)
-        self.spinner_frames = ["|", "/", "-", "\\"]
-        self.spinner_index = 0
-
-        # Task start time
+        # Task timing
         self.task_start_time = None
+        self.task_timer = QTimer()
+        self.task_timer.timeout.connect(self.update_task_duration)
 
         # Worker for upscaling process
         self.worker = None
@@ -310,20 +348,6 @@ class VUG(QMainWindow):
         self.log_box.append(message)
         self.log_box.verticalScrollBar().setValue(self.log_box.verticalScrollBar().maximum())
 
-    def update_spinner(self):
-        """Update spinner animation and task duration"""
-        self.spinner_label.setText(self.spinner_frames[self.spinner_index])
-        self.spinner_index = (self.spinner_index + 1) % len(self.spinner_frames)
-
-        # Update task duration
-        if self.task_start_time:
-            elapsed_time = time.time() - self.task_start_time
-            hours, remainder = divmod(elapsed_time, 3600)
-            minutes, seconds = divmod(remainder, 60)
-            self.task_duration_label.setText(
-                f"Task Duration: {int(hours):02}:{int(minutes):02}:{int(seconds):02}"
-            )
-
     def upscale_video(self):
         """Start the upscaling process in a separate thread"""
         input_path = self.input_input.text()
@@ -345,9 +369,6 @@ class VUG(QMainWindow):
         self.task_start_time = time.time()
         self.task_duration_label.setText("Task Duration: 00:00:00")
 
-        # Start spinner animation
-        self.spinner_timer.start(200)
-
         # Create worker and thread
         self.worker = UpscaleWorker(
             input_path,
@@ -361,17 +382,14 @@ class VUG(QMainWindow):
         # Connect signals
         self.worker.log_signal.connect(self.log_message)
         self.worker.finished_signal.connect(self.on_finished)
+        self.worker.progress_signal.connect(self.update_progress)
 
-        # Start the thread
+        # Start the thread and timer
+        self.task_timer.start(1000)  # Update every second
         self.worker_thread.start()
 
-    def on_finished(self):
-        """Handle completion of the upscaling process"""
-        self.spinner_timer.stop()
-        self.spinner_label.setText("")
-        self.upscale_button.setEnabled(True)
-
-        # Final task duration update
+    def update_task_duration(self):
+        """Update the task duration display"""
         if self.task_start_time:
             elapsed_time = time.time() - self.task_start_time
             hours, remainder = divmod(elapsed_time, 3600)
@@ -379,6 +397,16 @@ class VUG(QMainWindow):
             self.task_duration_label.setText(
                 f"Task Duration: {int(hours):02}:{int(minutes):02}:{int(seconds):02}"
             )
+
+    def update_progress(self, percent, _):
+        """Update progress bar with stage-based percentage"""
+        self.progress_bar.setValue(percent)
+
+    def on_finished(self):
+        """Handle completion of the upscaling process"""
+        self.upscale_button.setEnabled(True)
+        self.progress_bar.setValue(100)
+        self.update_task_duration()  # Final update
 
 def main():
     """Run the GUI application."""
