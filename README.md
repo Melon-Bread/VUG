@@ -5,7 +5,7 @@
 [![Packaging: Briefcase](https://img.shields.io/badge/Packaging-Briefcase-ff69b4)](https://briefcase.readthedocs.io)
 ![Platform](https://img.shields.io/badge/platform-Linux%2FmacOS%2FWindows-lightgrey)
 
-![screenshot](screenshots/20250314-193112.png)
+![screenshot](screenshots/20250409-175636.png)
 
 VUG is a cross-platform GUI application for video upscaling using Real-ESRGAN neural networks. Built with Python and PySide6, managed with BeeWare's Briefcase.
 
