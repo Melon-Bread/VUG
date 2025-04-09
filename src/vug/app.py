@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
 )
 from PySide6.QtCore import QTimer, Qt, Signal, QObject
+from PySide6.QtGui import QIcon
 
 
 # Supported video file extensions
@@ -253,6 +254,14 @@ class VUG(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VUG")
+
+        # Set window icon
+        icon_path = Path(__file__).parent.parent.parent / "icons" / "VUG.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+        else:
+            # Add a warning if the icon isn't found, useful for debugging
+            print(f"Warning: Icon file not found at expected path: {icon_path}", file=sys.stderr)
         self.setGeometry(100, 100, 600, 500)
         self.main_widget = QWidget()
         self.setCentralWidget(self.main_widget)
